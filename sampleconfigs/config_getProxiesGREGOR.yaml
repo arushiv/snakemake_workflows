@@ -1,0 +1,26 @@
+DIRECTORIES :
+  gregor_dir : "intermediateFiles/qtl_downstream_analyses/gwas_enrichment_in_enhancerCalls"
+  output_dir : "output_{trait}.ld{gregor_r2}"
+  proxy_output_dir : "intermediateFiles"
+
+DATA :
+  input_snps : "/lab/work/arushiv/gwas_snpFiles/{trait}.txt"
+    
+PARAMETERS : 
+  gregor_version_path : "/lab/sw/modules/GREGOR/1.2.1/script/GREGOR.pl"
+  TRAITS : "['FGlu']"
+  config_name : "enrich.{trait}.ld{gregor_r2}.conf"
+  POPULATION : "EUR"
+  gregor_r2 : 0.8
+  cores: 10
+  nameFieldSeparator: '.'
+  jobFieldSeparator : '.'
+  header : "trait ld r2 feature flank overlap expected_overlap pval"
+  proxy : "os.path.join(config['DIRECTORIES']['proxy_output_dir'], '{trait}.ldproxy{gregor_r2}.dat')"
+    
+SCRIPTS : 
+  makeConfFile : "/home/arushiv/toolScripts/gregor_makeConf.py"
+  assembleDF : "/home/arushiv/toolScripts/makeDataFrame_gregor_new.py"
+  plot : "/home/arushiv/erna_analyses/nisc_exploreQTL_parameters/scripts/poster_gwas_enrichment_in_tc.R"
+  proxyFromGREGOR : "~arushiv/toolScripts/gregorOutputCompileLdSnps.py"
+#/home/arushiv/erna_analyses/nisc_exploreQTL_parameters/scripts/plot_gwasEnrichment_in_enhancerCalls.R"

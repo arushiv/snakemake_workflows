@@ -1,0 +1,102 @@
+import subprocess as sp
+import os
+import glob
+import pandas
+import numpy
+
+"""A configfile provided through command line will overwrite these config"""
+config = {
+    # Name gregor working and output directories
+    'DIRECTORIES' : {
+        'gregor_dir' : "intermediateFiles/gregor",
+        'output_dir' : "intermediateFiles/gregor/output.ld{gregor_r2}.{trait}"
+    },
+
+    # Name gregor input SNP and annotation files, adjusting wildcards
+    'DATA' : {
+        'input_snps' : "{trait}.txt",
+        'annotation' : "{annotation}.bed",
+        'output' : "enrichment_stats.txt",
+    },
+
+    # GREGOR parameters and specify wildcard values.
+    'PARAMETERS' : {
+        'gregor_version_path' : "/lab/sw/modules/GREGOR/1.2.1/script/GREGOR.pl",
+        'TRAITS' : ['T2D'],
+        'ANNOTATION' : ['Islets.chromatinStates'],
+        'POPULATION' : "EUR",
+        'gregor_r2' : [0.8],
+        'cores': 10
+    },
+
+    'SCRIPTS' : {
+        'makeConfFile' : "/home/arushiv/toolScripts/gregor_makeConf.py",
+        'assembleDF' : "/home/arushiv/toolScripts/makeDataFrame_gregor_new.py"
+    },
+
+}
+
+rule final:
+    """
+    Run GREGOR and assemble dataframe
+    """
+    input:
+        os.path.join(config['DIRECTORIES']['gregor_dir'], config['DATA']['output']),
+
+rule makeBedFiles:
+    """Add all annotation paths to GREGOR bedfile - all annotations will be tested in one GREGOR run, so we make one file """
+    input:
+        annotations = expand(config['DATA']['annotation'], annotation = config['PARAMETERS']['ANNOTATION']),
+    output:
+        bedfile = os.path.join(config['DIRECTORIES']['gregor_dir'], "bedfile.txt"),
+    shell:
+        """
+        for i in {input.annotations}; do echo $i ; done > {output.bedfile}
+        """
+        
+rule setupGREGOR:
+    """Provide parameters to make GREGOR .conf file - one file per trait """
+    input:
+        snpfile = config['DATA']['input_snps'],
+        bedfile = rules.makeBedFiles.output.bedfile
+    output:
+        conf = os.path.join(config['DIRECTORIES']['gregor_dir'], "enrich.{trait}.ld{gregor_r2}.conf"),
+    params:
+        script = config['SCRIPTS']['makeConfFile'],
+        population = config['PARAMETERS']['POPULATION'],
+        gregorR2Threshold = '{gregor_r2}',
+        outputdir = config['DIRECTORIES']['output_dir'],
+        cores = config['PARAMETERS']['cores']
+    shell:
+        r"""
+        python {params.script} --conffile {output.conf} --snpfile {input.snpfile} --bedfile {input.bedfile} \
+        --gregorR2Threshold {params.gregorR2Threshold} --cores {params.cores} --outputdir {params.outputdir} \
+        --population {params.population};
+        """
+        
+rule runGREGOR:
+    """Run GREGOR """
+    input:
+        conf = rules.setupGREGOR.output.conf
+    output:
+        ld = os.path.join(config['DIRECTORIES']['output_dir'], "index_SNP/index.snp.LD.txt"),
+        stats = os.path.join(config['DIRECTORIES']['output_dir'], "StatisticSummaryFile.txt")
+    params:
+        gregor_version_path = config['PARAMETERS']['gregor_version_path']
+    shell:
+        r"""
+        ionice -c2 -n7 {params.gregor_version_path} GREGOR.pl --conf {input.conf}
+        """
+        
+rule assembleStats:
+    """Assemble dataframe for all traits in one file """
+    input:
+        stats = expand(rules.runGREGOR.output.stats, trait = config['PARAMETERS']['TRAITS'], gregor_r2 = config['PARAMETERS']['gregor_r2'])
+    output:
+        stats = os.path.join(config['DIRECTORIES']['gregor_dir'], config['DATA']['output']),
+    params:
+        script = config['SCRIPTS']['assembleDF']
+    shell:
+        """
+        python {params.script} --filename {input.stats} --outputfilename {output.stats}
+        """

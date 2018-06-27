@@ -1,0 +1,82 @@
+import subprocess as sp
+import os
+import glob
+import pandas
+import numpy
+
+GREGOR_DIR = config['DIRECTORIES']['gregor_dir']
+GREGOR_outputDir = os.path.join(GREGOR_DIR, config['DIRECTORIES']['output_dir'])
+TRAITS = eval(config['PARAMETERS']['TRAITS'])
+GREGOR_INPUT_SNPS = config['DATA']['input_snps']
+GREGOR_CONFIG_NAME = config['PARAMETERS']['config_name']
+proxy_output = eval(config['PARAMETERS']['proxy'])
+
+print(GREGOR_INPUT_SNPS)
+
+rule final:
+    """
+    Run GREGOR with dummy bed file to get proxies
+    """
+    input:
+        expand(proxy_output, trait = TRAITS, gregor_r2 = config['PARAMETERS']['gregor_r2'])
+
+rule makeBedFiles:
+    """Make dummy annotation bed file and add its name into the bedfile.txt for running GREGOR """
+    output:
+        annotfile = os.path.join(GREGOR_DIR, "dummyannot.bed"),
+        bedfile = os.path.join(GREGOR_DIR, "bedfile.txt"),
+    shell:
+        r"""
+        echo -e "chr1\t10000\t100000" > {output.annotfile} ;
+        echo "{output.annotfile}" > {output.bedfile}
+        """
+    
+rule setupGREGOR:
+    """Provide parameters to make GREGOR .conf file - one file per trait """
+    input:
+        snpfile = GREGOR_INPUT_SNPS,
+        bedfile = rules.makeBedFiles.output.bedfile
+    output:
+        conf = os.path.join(GREGOR_DIR, GREGOR_CONFIG_NAME),
+    params:
+        script = config['SCRIPTS']['makeConfFile'],
+        population = config['PARAMETERS']['POPULATION'],
+        gregorR2Threshold = '{gregor_r2}',
+        outputdir = GREGOR_outputDir,
+        cores = config['PARAMETERS']['cores']
+    shell:
+        r"""
+        python {params.script} --conffile {output.conf} --snpfile {input.snpfile} --bedfile {input.bedfile} \
+        --gregorR2Threshold {params.gregorR2Threshold} --cores {params.cores} --outputdir {params.outputdir} \
+        --population {params.population};
+        """
+
+rule runGREGOR:
+    """Run GREGOR """
+    input:
+        conf = rules.setupGREGOR.output.conf
+    output:
+        ld = os.path.join(GREGOR_outputDir, "index_SNP/index.snp.LD.txt"),
+        stats = os.path.join(GREGOR_outputDir, "StatisticSummaryFile.txt")
+    params:
+        gregor_version_path = config['PARAMETERS']['gregor_version_path']
+    shell:
+        r"""
+        ionice -c2 -n7 {params.gregor_version_path} --conf {input.conf}
+        """
+                                                                                                                                                                                                                                                                                
+rule getProxies:
+    """
+    Get r2 proxies - use GREGOR output.
+    """
+    input:
+        rules.runGREGOR.output.ld
+    output:
+        proxy_output
+    params:
+        script = config['SCRIPTS']['proxyFromGREGOR'],
+    shell:
+        r"""
+        python {params.script} {input} {output};
+        """
+       
